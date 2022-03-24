@@ -1,3 +1,7 @@
 ## Ignore data files
 
 /data/
+
+## Ignore jupyter notebook checkpoint files
+
+.ipynb_checkpoints
