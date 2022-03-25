@@ -5,3 +5,7 @@
 ## Ignore jupyter notebook checkpoint files
 
 .ipynb_checkpoints
+
+## Ignore temporary files folder
+
+/code/processing/tempFiles
