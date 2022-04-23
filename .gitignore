@@ -6,6 +6,10 @@
 
 .ipynb_checkpoints
 
+## Ignore miscellaneous RStudio notebook files
+
+*.nb.html
+
 ## Ignore temporary files folder
 
 /code/processing/tempFiles
