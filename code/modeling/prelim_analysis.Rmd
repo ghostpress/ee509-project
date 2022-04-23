@@ -1,0 +1,95 @@
+---
+title: "EE 509 Project: Preliminary Analysis"
+author: "Lucia Vilallonga"
+output: html_notebook
+---
+
+# Background
+
+Generalized Linear Model (GLM) vs time-series analysis for predicting adoption of residential rooftop solar systems in Massachusetts towns. 
+
+# Setup
+## Libraries
+```{r, echo=FALSE}
+library(sf)       ## GIS data
+#library(imager)   ## loading images
+library(rjags)    ## MCMC
+```
+
+## Load and Format Data
+```{r}
+X <- st_read("/home/lucia/bu/year4/semester2/EE509/project/ee509-project/data/ready/X/X.shp")
+y <- read.csv("/home/lucia/bu/year4/semester2/EE509/project/ee509-project/data/ready/y/y.csv")
+
+# Join the datasets along the town axis
+PV <- merge(X, y, by="TOWN")
+
+# Format data for MCMC
+# First model will not include spatial variables
+# For now, just use the average income and education values (not sum/highest)
+dat <- list(y=PV$totalInst, x1=PV$utilCode, x2=PV$avgEd, x3=PV$avgInc, x4=PV$Biden., x5=PV$Biden..1)
+```
+
+# First Model: GLM - Poisson Regression
+## Specify Model
+```{r}
+poisson_glm <- "
+model {
+  betas ~ dmnorm(B0, Vb)   ## prior on parameters
+
+  # Data model:
+  
+  #for(i in 1:n) {
+  #  x[i] ~ dnorm()  ## TODO: where does S go?
+  #}
+  
+  # Process model:
+  
+  for(i in 1:n) {
+    log(lambda[i]) = X[i,] %*% betas
+    y[i] ~ dpois(lambda[i])  
+  }
+}"
+```
+
+## MCMC Setup
+```{r}
+# Reformat data for multivariate JAGS
+X <- model.matrix(~x1 + x2 + x3 + x4 + x5, data=dat)  ## prepends a column of 1s and puts xi into matrix
+data <- list(y=dat$y, X=X)
+
+# Specify priors
+data$B0  <- as.vector(c(0, 0, 0, 0, 0, 0))   ## priors on param.s means
+data$Vb  <- solve(diag(10000, 6))            ## priors on param.s variances
+data$n   <- length(data$y)                   ## n = no. of observations; m = no. of covariates
+
+inits = list(betas=rnorm(6, 100, 10))
+
+# Initialize JAGS
+j.plm <- jags.model(file=textConnection(poisson_glm),
+                    data=data, 
+                    inits=inits,
+                    n.chains=3,
+                    n.adapt=5000)
+```
+
+## Running MCMC
+```{r}
+# Run JAGS
+jags.poisson_out <- coda.samples(model=j.plm, 
+                                 variable.names=c("betas"),
+                                 n.iter=100000)
+```
+
+## Diagnostics
+```{r}
+# Checking convergence & posterior densities
+plot(jags.poisson_out)
+
+# Brooks-Gelman-Rubin
+gelman.diag(jags.poisson_out)
+GBR <- gelman.plot(jags.poisson_out)
+
+# Effective sample size
+effectiveSize(jags.poisson_out)
+```
