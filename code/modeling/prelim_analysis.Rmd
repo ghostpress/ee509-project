@@ -196,6 +196,9 @@ $$y_i \sim Normal(\mu_i, S) \\ X_{inc, i, observed} \sim Normal(X_{inc, i}, \alp
 
 Parameter model:
 $$\beta \sim Normal(B_0, V_b) \\ S \sim Gamma(s_1, s_2) \\ \alpha \sim Normal(a_0, V_a)$$
+
+In this case, the American Community Survey (ACS) income data also reports Margins of Error (MOE) for each estimate, which can be fed directly into JAGS as precisions, instead of estimating with the alpha parameters:
+
 ## SE Calculations for heteroskedastic income data
 ```{r}
 MOE <- PV$moeInc
@@ -207,7 +210,7 @@ SE  <- abs(MOE) / 1.645   ## source: US Census Bureau, 2009
 linear_glm_he <- "
 model {
   betas ~ dmnorm(B0, Vb)  ## prior on betas
-  #alpha ~ dlorm(a1, Va)   ## prior on X variance param. (zero-bound)
+  #alpha ~ dlorm(a1, Va)  ## prior on X variance param. (zero-bound)
   S ~ dgamma(s1, s2)
   
   for(i in 1:n) {
