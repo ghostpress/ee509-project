@@ -40,6 +40,9 @@ Data model:
 $$y_i \sim Pois(\lambda_i)$$
 Parameter model:
 $$\beta \sim Normal(B_0, V_b)$$
+Log-likelihood:
+$$ln(L) = \sum_{i=1}^n y_i(\beta X_i) - \sum_{i=1}^ne^{\beta X_i}$$
+
 ## Specify Model
 ```{r}
 poisson_glm <- "
@@ -58,6 +61,12 @@ Poisson regression doesn't seem to work; can't get the model to converge, even w
 
 # Model 1a: Bayesian linear regression
 
+Process model:
+$$\mu_i = \beta X_i$$
+Data model:
+$$y_i \sim Normal(\mu_i, S)$$
+Parameter model:
+$$\beta \sim Normal(B_0, V_b) \\ S \sim Gamma(s_1, s_2)$$
 ## Specify Model
 ```{r}
 linear_glm_mv <- "
@@ -177,8 +186,78 @@ c3.lin_mv <- quantile(out_lin_mv_split[,"betas[3]"], c(0.025, 0.975))  ## beta[3
 c4.lin_mv <- quantile(out_lin_mv_split[,"betas[4]"], c(0.025, 0.975))  ## beta[4] (slope on x3, %voBiden)
 ```
 
-# Second Model: Bayesian Linear Regression with Heteroskedasticity
+# Second Model: Bayesian linear regression with heteroskedasticity in income data
+
+Process model:
+$$\mu_i = \beta X_i$$
+
+Data model:
+$$y_i \sim Normal(\mu_i, S) \\ X_{inc, i, observed} \sim Normal(X_{inc, i}, \alpha_i X_{inc, i})$$
+
+Parameter model:
+$$\beta \sim Normal(B_0, V_b) \\ S \sim Gamma(s_1, s_2) \\ \alpha \sim Normal(a_0, V_a)$$
+## SE Calculations for heteroskedastic income data
 ```{r}
+MOE <- PV$moeInc
+SE  <- abs(MOE) / 1.645   ## source: US Census Bureau, 2009
+```
+
+## Specify Model 
+```{r}
+linear_glm_he <- "
+model {
+  betas ~ dmnorm(B0, Vb)  ## prior on betas
+  #alpha ~ dlorm(a1, Va)   ## prior on X variance param. (zero-bound)
+  S ~ dgamma(s1, s2)
+  
+  for(i in 1:n) {
+    X[i,3] ~ dnorm(dummy_x3[i], SE[i])  ## income data is in the 3rd column of X
+    x3.hat[i] <- X[i,3]
+  }
+  
+  for(i in 1:n) {
+    mu[i] <- X[i,] %*% betas
+    
+    #s[i] <- alpha*X[i,3]  
+    #S[i] <- 1/s[i]^2
+    
+    y[i] ~ dnorm(mu[i], S)
+    like[i] <- dnorm(y[i], mu[i], S)
+  }
+}"
+```
+
+## MCMC Setup
+```{r}
+datah <- list(y=dat$y, X=X, SE=SE)
+
+# Create a dummy vector x3 for the income data:
+datah$dummy_x3 <- datah$X[,3]
+
+# Specify priors:
+datah$B0 <- as.vector(c(0, 0, 0, 0))
+datah$Vb <- solve(diag(10000, 4))
+datah$s1 <- 0.001
+datah$s2 <- 0.001
+datah$n  <- length(datah$y)
+
+# Initialize JAGS:
+j.lin_he <- jags.model(file=textConnection(linear_glm_he),
+                       data=datah,
+                       n.chains=3)
+```
+
+```{r}
+jags.lin_he <- coda.samples(model=j.lin_he,
+                            variable.names=c("betas", "S", "x3.hat", "like"),
+                            n.iter=10000)
+```
+
+```{r}
+out_he <- as.matrix(jags.lin_he)
+
+plot(density(datah$dummy_x3), main="Reported incomes")
+plot(density(out_he[,356:705]), main="Sampled incomes using MOE")
 ```
 
 TODO: 
