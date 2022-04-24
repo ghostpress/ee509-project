@@ -316,6 +316,15 @@ c4.lin_he <- quantile(out_burn_he[,"betas[4]"], c(0.025, 0.975))  ## beta[4] (sl
 ```
 
 # Results
+
+Comparing the outputs of model 1 (simple Bayesian linear regression) and model 2 (Bayesian linear regression with heteroskedasticity in income data).
+
+Just from WAIC and DIC scores, model 2 appears to perform better as a descriptor of rooftop PV adoption. It has a much lower DIC than model 1, but the WAIC scores were the same. Since both models had the same number of parameters, the difference can't be attributed to that penalty. However, since both models arrived at very similar estimates for the parameter values and their 95% CIs, I question how much the covariates actually contribute to rooftop PV adoption. This is curious, especially considering that in theory, model 2 should be able to model latent, "true" incomes as opposed to the highly error-prone reported income values, and one would expect higher incomes to be correlated with greater adoption because of the upfront and maintenance costs of rooftop PV systems. 
+
+With the exception of x4, or %voBiden, the other covariates seem to have mild or very little effect on y. betas[4], or the slope parameter on x4, suggests that a greater fraction of votes for Biden correlate with an increase in rooftop PV adoption.  
+
+Perhaps x4 is thus the only significant covariate. 
+
 ```{r}
 params <- c("S", "betas[1]", "betas[2]", "betas[3]", "betas[4]")
 
@@ -354,4 +363,5 @@ knitr::kable(fit_df, caption="Table 2: DIC and WAIC values for model 1 Bayesian 
 TODO: 
 1. CIs for lin_mv model
 2. CIs for heteroskedastic model
-3. model 3: time-series
+3. model 3: linear regression with just x4, %voBiden
+4. model 3: time-series
