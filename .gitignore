@@ -9,6 +9,7 @@
 ## Ignore miscellaneous RStudio notebook files
 
 *.nb.html
+*.knit.md
 
 ## Ignore temporary files folder
 
