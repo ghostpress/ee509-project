@@ -97,11 +97,11 @@ jags.lin_mv <- coda.samples(model=j.lin_mv,
                           variable.names=c("betas", "S", "like"),
                           n.iter=10000)
 
-out_lin_mv <- as.matrix(jags.lin_mv)
+#out_lin_mv <- as.matrix(jags.lin_mv)
 ```
 
 ## Splitting JAGS output
-Code source: Prof. Dietze
+Code source: Michael Dietze
 ```{r}
 # Function to split JAGS output
 codaSplit <- function(jags.out,pattern){
@@ -138,11 +138,10 @@ jags.burn_lin_mv_split <- codaSplit(jags.burn_lin_mv, "like")
 plot(jags.burn_lin_mv_split[[2]])
 
 # Brooks-Gelman-Rubin
-gelman.diag(jags.lin_mv)
-GBR <- gelman.plot(jags.lin_mv)
+GBR <- gelman.plot(lin_mv_split[[2]])
 
 # Effective sample size
-effectiveSize(jags.lin_mv)
+effectiveSize(lin_mv_split[[2]])
 ```
 
 ## Density plots
@@ -167,7 +166,19 @@ dic.lin_mv <- sum(dic.lin_mv$deviance) + sum(dic.lin_mv$penalty)
 # WAIC
 waic.lin_mv <- WAIC(as.matrix(lin_mv_split[[1]]))
 
-print(paste(dic.lin_mv, " ", waic.lin_mv$WAIC))
+print(paste("DIC: ", round(dic.lin_mv, digits=3), " WAIC: ", round(waic.lin_mv$WAIC, digits=3)))
+```
+
+## Parameter Confidence Intervals
+```{r}
+c1.lin_mv <- quantile(out_lin_mv_split[,"betas[1]"], c(0.025, 0.975))  ## beta[1] (intercept)
+c2.lin_mv <- quantile(out_lin_mv_split[,"betas[2]"], c(0.025, 0.975))  ## beta[2] (slope on x1, avgEd)
+c3.lin_mv <- quantile(out_lin_mv_split[,"betas[3]"], c(0.025, 0.975))  ## beta[3] (slope on x2, avgInc)
+c4.lin_mv <- quantile(out_lin_mv_split[,"betas[4]"], c(0.025, 0.975))  ## beta[4] (slope on x3, %voBiden)
+```
+
+# Second Model: Bayesian Linear Regression with Heteroskedasticity
+```{r}
 ```
 
 TODO: 
