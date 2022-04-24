@@ -12,8 +12,8 @@ output: html_notebook
 ## Libraries
 ```{r, echo=FALSE}
 library(sf)             ## GIS data
-#library(imager)        ## loading images
 library(rjags)          ## MCMC
+library(MCMCvis)        ## Visualize MCMC outputs for particular params
 library(LaplacesDemon)  ## WAIC
 ```
 
