@@ -11,6 +11,12 @@
 *.nb.html
 *.knit.md
 
+## Ignore MCMC trace files
+*MCMCtrace.pdf
+
+## Ignore images
+*.png
+
 ## Ignore temporary files folder
 
 /code/processing/tempFiles
