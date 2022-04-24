@@ -15,6 +15,8 @@ library(sf)             ## GIS data
 library(rjags)          ## MCMC
 library(MCMCvis)        ## Visualize MCMC outputs for particular params
 library(LaplacesDemon)  ## WAIC
+library(pdftools)       ## convert MCMCvis PDF output to image
+library(imager)         ## show images from file
 ```
 
 ## Load and Format Data
@@ -141,6 +143,7 @@ plot(lin_mv_split[[2]])
 
 # Remove burn-in
 jags.burn_lin_mv <- window(jags.lin_mv, start=500)
+out_burn_lin_mv  <- as.matrix(jags.burn_lin_mv) 
 jags.burn_lin_mv_split <- codaSplit(jags.burn_lin_mv, "like")
 
 # Checking convergence & posterior densities
@@ -166,6 +169,7 @@ plot(density(out_lin_mv_split[,3]), main="Beta[2]",
 plot(density(out_lin_mv_split[,4]), main="Beta[3]", 
      sub="Density of MCMC samples for slope on %Biden", cex.sub=0.8)  
 ```
+
 ## Model Fit
 ```{r}
 # DIC
@@ -180,6 +184,7 @@ print(paste("DIC: ", round(dic.lin_mv, digits=3), " WAIC: ", round(waic.lin_mv$W
 
 ## Parameter Confidence Intervals
 ```{r}
+cS.lin_mv <- quantile(out_lin_mv_split[,"S"], c(0.025, 0.975))         ## S 
 c1.lin_mv <- quantile(out_lin_mv_split[,"betas[1]"], c(0.025, 0.975))  ## beta[1] (intercept)
 c2.lin_mv <- quantile(out_lin_mv_split[,"betas[2]"], c(0.025, 0.975))  ## beta[2] (slope on x1, avgEd)
 c3.lin_mv <- quantile(out_lin_mv_split[,"betas[3]"], c(0.025, 0.975))  ## beta[3] (slope on x2, avgInc)
@@ -262,8 +267,91 @@ out_he <- as.matrix(jags.lin_he)
 plot(density(datah$dummy_x3), main="Reported incomes")
 plot(density(out_he[,356:705]), main="Sampled incomes using MOE")
 ```
+## Diagnostics
+```{r}
+# Plots commented out below bc couldn't split MCMC object 2x, 
+# so with like and x3.hat there are 705 plots total
+#plot(jags.lin_he)  ## good convergence on betas, S
+#GBR <- gelman.plot(jags.lin_he)  ## burn-in should be around 1000
+
+# Burn-in:
+jags.burn_lin_he <- window(jags.lin_he, start=1000)
+
+# Using MCMCvis to get the trace plots of just S and betas
+MCMCtrace(jags.burn_lin_he, 
+          params=c("S", "betas[1]", "betas[2]", "betas[3]", "betas[4]"),
+          ISB=FALSE,
+          exact=TRUE)  ## outputs a PDF file in working directory
+
+# Show trace plots:
+pdf_convert("MCMCtrace.pdf", format="png")  ## convert to png file
+knitr::include_graphics("/home/lucia/bu/year4/semester2/EE509/project/ee509-project/code/modeling/MCMCtrace_1.png")
+knitr::include_graphics("/home/lucia/bu/year4/semester2/EE509/project/ee509-project/code/modeling/MCMCtrace_2.png")
+
+#effectiveSize(jags.burn_lin_he)
+```
+
+## Model Fit
+```{r}
+# DIC
+dic.lin_he <- dic.samples(j.lin_he, 1000, "pD")
+dic.lin_he <- sum(dic.lin_he$deviance) + sum(dic.lin_he$penalty)
+
+# WAIC
+lin_he_split <- codaSplit(jags.lin_he, "like")
+waic.lin_he <- WAIC(as.matrix(lin_he_split[[1]]))
+
+print(paste("DIC: ", round(dic.lin_he, digits=3), " WAIC: ", round(waic.lin_he$WAIC, digits=3)))
+```
+
+## Parameter Confidence Intervals
+```{r}
+out_burn_he <- as.matrix(jags.burn_lin_he)
+
+cS.lin_he <- quantile(out_burn_he[,"S"], c(0.025, 0.975))         ## S
+c1.lin_he <- quantile(out_burn_he[,"betas[1]"], c(0.025, 0.975))  ## beta[1] (intercept)
+c2.lin_he <- quantile(out_burn_he[,"betas[2]"], c(0.025, 0.975))  ## beta[2] (slope on x1, avgEd)
+c3.lin_he <- quantile(out_burn_he[,"betas[3]"], c(0.025, 0.975))  ## beta[3] (slope on x2, avgInc)
+c4.lin_he <- quantile(out_burn_he[,"betas[4]"], c(0.025, 0.975))  ## beta[4] (slope on x3, %voBiden)
+```
+
+# Results
+```{r}
+params <- c("S", "betas[1]", "betas[2]", "betas[3]", "betas[4]")
+
+model1_vals <- c(mean(out_burn_lin_mv[,"S"]), 
+                 mean(out_burn_lin_mv[,"betas[1]"]),
+                 mean(out_burn_lin_mv[,"betas[2]"]),
+                 mean(out_burn_lin_mv[,"betas[3]"]),
+                 mean(out_burn_lin_mv[,"betas[4]"]))
+model2_vals <- c(mean(out_burn_he[,"S"]), 
+                 mean(out_burn_he[,"betas[1]"]),
+                 mean(out_burn_he[,"betas[2]"]), 
+                 mean(out_burn_he[,"betas[3]"]),
+                 mean(out_burn_he[,"betas[4]"]))
+
+model1_ci_l <- c(cS.lin_mv[1], c1.lin_mv[1], c2.lin_mv[1], c3.lin_mv[1], c4.lin_mv[1])
+model1_ci_u <- c(cS.lin_mv[2], c1.lin_mv[2], c2.lin_mv[2], c3.lin_mv[2], c4.lin_mv[2])
+model2_ci_l <- c(cS.lin_he[1], c1.lin_he[1], c2.lin_he[1], c3.lin_he[1], c4.lin_he[1])
+model2_ci_u <- c(cS.lin_he[2], c1.lin_he[2], c2.lin_he[2], c3.lin_he[2], c4.lin_he[2])
+
+res_df <- data.frame(params, model1_vals, model2_vals,
+                     model1_ci_l, model1_ci_u, model2_ci_l, model2_ci_u)
+
+fit    <- c("DIC", "WAIC")
+model1 <- c(dic.lin_mv, waic.lin_mv$WAIC)
+model2 <- c(dic.lin_he, waic.lin_he$WAIC)
+
+fit_df <- data.frame(fit, model1, model2)
+
+knitr::kable(res_df, caption="Table 1: Parameter values for model 1 (Bayesian linear regression) and model 2 (Bayesian linear regression with heteroskedasticity in income data)")
+
+knitr::kable(fit_df, caption="Table 2: DIC and WAIC values for model 1 Bayesian linear regression) and model 2 (Bayesian linear regression with heteroskedasticity in income data)")
+```
+
+
 
 TODO: 
 1. CIs for lin_mv model
-2. model 2: heteroskedasticity
+2. CIs for heteroskedastic model
 3. model 3: time-series
