@@ -264,8 +264,8 @@ jags.lin_he <- coda.samples(model=j.lin_he,
 ```{r}
 out_he <- as.matrix(jags.lin_he)
 
-plot(density(datah$dummy_x3), main="Reported incomes")
-plot(density(out_he[,356:705]), main="Sampled incomes using MOE")
+plot(density(datah$dummy_x3), main="Figure 1: Reported incomes")
+plot(density(out_he[,356:705]), main="Figure 2: Sampled incomes using MOE")
 ```
 ## Diagnostics
 ```{r}
@@ -288,7 +288,7 @@ pdf_convert("MCMCtrace.pdf", format="png")  ## convert to png file
 knitr::include_graphics("/home/lucia/bu/year4/semester2/EE509/project/ee509-project/code/modeling/MCMCtrace_1.png")
 knitr::include_graphics("/home/lucia/bu/year4/semester2/EE509/project/ee509-project/code/modeling/MCMCtrace_2.png")
 
-#effectiveSize(jags.burn_lin_he)
+#effectiveSize(jags.burn_lin_he)  ## >10,000 for S, betas
 ```
 
 ## Model Fit
@@ -315,6 +315,8 @@ c3.lin_he <- quantile(out_burn_he[,"betas[3]"], c(0.025, 0.975))  ## beta[3] (sl
 c4.lin_he <- quantile(out_burn_he[,"betas[4]"], c(0.025, 0.975))  ## beta[4] (slope on x3, %voBiden)
 ```
 
+
+
 # Results
 
 Comparing the outputs of model 1 (simple Bayesian linear regression) and model 2 (Bayesian linear regression with heteroskedasticity in income data).
@@ -325,6 +327,7 @@ With the exception of x4, or %voBiden, the other covariates seem to have mild or
 
 Perhaps x4 is thus the only significant covariate. 
 
+## Summary tables
 ```{r}
 params <- c("S", "betas[1]", "betas[2]", "betas[3]", "betas[4]")
 
@@ -358,6 +361,16 @@ knitr::kable(res_df, caption="Table 1: Parameter values for model 1 (Bayesian li
 knitr::kable(fit_df, caption="Table 2: DIC and WAIC values for model 1 Bayesian linear regression) and model 2 (Bayesian linear regression with heteroskedasticity in income data)")
 ```
 
+## Plotting param values
+```{r}
+MCMCplot(object=jags.burn_lin_mv,
+         object2=jags.burn_lin_he,
+         params=c("S", "betas[1]", "betas[2]", "betas[3]", "betas[4]"),
+         offset=0.2,
+         ISB=FALSE,
+         exact=TRUE,
+         main="Figure 3: Comparison of parameters for models 1 and 2")
+```
 
 
 TODO: 
