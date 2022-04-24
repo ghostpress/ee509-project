@@ -496,5 +496,5 @@ MCMCplot(object=jags.burn_lin_mv,
 TODO: 
 1. CIs for lin_mv model
 2. CIs for heteroskedastic model
-3. model 3: linear regression with just x4, %voBiden
+3. CIs for single linear regression model
 4. model 3: time-series
