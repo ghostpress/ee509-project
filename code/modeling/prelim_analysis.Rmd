@@ -408,6 +408,25 @@ c1.lin_x3 <- quantile(out_lin_x3_split[,"betas[1]"], c(0.025, 0.975))  ## beta[1
 c2.lin_x3 <- quantile(out_lin_x3_split[,"betas[2]"], c(0.025, 0.975))  ## beta[2] (slope on x3, %Biden)
 ```
 
+## Confidence Interval Plots
+```{r}
+niter <- 10000
+xpred <- seq(0, 1, by=0.005)
+npred <- length(xpred)
+
+ycred <- matrix(NA, nrow=niter, ncol=npred)
+
+for(i in 1:niter) {
+  ycred[i,] <- out_burn_lin_x3[i, "betas[1]"] + out_burn_lin_x3[i, "betas[2]"]*xpred[i]
+}
+
+ci.x3 <- apply(ycred, 2, quantile, c(0.025, 0.975), na.rm=TRUE)
+
+plot(data1$x, data1$y)
+lines(xpred, ci.x3[1,], col=3, lty=2)
+lines(xpred, ci.x3[2,], col=3, lty=2)
+```
+
 # Results
 
 Comparing the outputs of model 1 (simple Bayesian linear regression on 3 covariates), model 2 (Bayesian linear regression on 3 covariates with heteroskedasticity in income data), and model 3 (Bayesian linear regression on 1 covariate).
