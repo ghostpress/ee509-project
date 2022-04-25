@@ -13,8 +13,8 @@ output: html_notebook
 ```{r, echo=FALSE}
 library(sf)             ## GIS data
 library(rjags)          ## MCMC
-library(MCMCvis)        ## Visualize MCMC outputs for particular params
 library(LaplacesDemon)  ## WAIC
+library(MCMCvis)        ## Visualize MCMC outputs for particular params
 library(pdftools)       ## convert MCMCvis PDF output to image
 library(imager)         ## show images from file
 ```
@@ -28,8 +28,8 @@ y <- read.csv("/home/lucia/bu/year4/semester2/EE509/project/ee509-project/data/r
 PV <- merge(X, y, by="TOWN")
 
 # Format data for MCMC
-# First model will not include spatial variables
-# For now, just use the average income and education values (not sum/highest)
+# First models will not include spatial variables
+# For now, just use the average income and education values (not sum/highest) and %Biden as covariates
 dat <- list(y=PV$totalInst, x1=PV$avgEd, x2=PV$avgInc, x3=PV$Biden.)
 X <- model.matrix(~x1 + x2 + x3, data=dat)  ## prepends a column of 1s and puts xj into matrix X
 ```
@@ -91,8 +91,8 @@ datam <- list(y=dat$y, X=X)
 # Specify priors
 datam$B0 <- as.vector(c(0, 0, 0, 0))  ## priors on param.s means
 datam$Vb <- solve(diag(10000, 4))     ## priors on param.s variances
-datam$s1  <- 0.001
-datam$s2  <- 0.001
+datam$s1 <- 0.001
+datam$s2 <- 0.001
 datam$n  <- length(datam$y) ## n = no. of observations; m = no. of covariates
 
 # Initialize JAGS
@@ -196,7 +196,7 @@ c4.lin_mv <- quantile(out_lin_mv_split[,"betas[4]"], c(0.025, 0.975))  ## beta[4
 Process model:
 $$\mu_i = \beta X_i$$
 
-Data model:
+General heteroskedastic data model:
 $$y_i \sim Normal(\mu_i, S) \\ X_{inc, i, observed} \sim Normal(X_{inc, i}, \alpha_i X_{inc, i})$$
 
 Parameter model:
@@ -225,9 +225,6 @@ model {
   
   for(i in 1:n) {
     mu[i] <- X[i,] %*% betas
-    
-    #s[i] <- alpha*X[i,3]  
-    #S[i] <- 1/s[i]^2
     
     y[i] ~ dnorm(mu[i], S)
     like[i] <- dnorm(y[i], mu[i], S)
@@ -267,12 +264,13 @@ out_he <- as.matrix(jags.lin_he)
 plot(density(datah$dummy_x3), main="Figure 1: Reported incomes")
 plot(density(out_he[,356:705]), main="Figure 2: Sampled incomes using MOE")
 ```
+
 ## Diagnostics
 ```{r}
-# Plots commented out below bc couldn't split MCMC object 2x, 
+# Plots are commented out below bc couldn't split MCMC object 2x, 
 # so with like and x3.hat there are 705 plots total
-#plot(jags.lin_he)  ## good convergence on betas, S
-#GBR <- gelman.plot(jags.lin_he)  ## burn-in should be around 1000
+# plot(jags.lin_he)  ## good convergence on betas, S
+# GBR <- gelman.plot(jags.lin_he)  ## burn-in should be around 1000
 
 # Burn-in:
 jags.burn_lin_he <- window(jags.lin_he, start=1000)
@@ -312,11 +310,10 @@ cS.lin_he <- quantile(out_burn_he[,"S"], c(0.025, 0.975))         ## S
 c1.lin_he <- quantile(out_burn_he[,"betas[1]"], c(0.025, 0.975))  ## beta[1] (intercept)
 c2.lin_he <- quantile(out_burn_he[,"betas[2]"], c(0.025, 0.975))  ## beta[2] (slope on x1, avgEd)
 c3.lin_he <- quantile(out_burn_he[,"betas[3]"], c(0.025, 0.975))  ## beta[3] (slope on x2, avgInc)
-c4.lin_he <- quantile(out_burn_he[,"betas[4]"], c(0.025, 0.975))  ## beta[4] (slope on x3, %voBiden)
+c4.lin_he <- quantile(out_burn_he[,"betas[4]"], c(0.025, 0.975))  ## beta[4] (slope on x3, %Biden)
 ```
 
 # Model 3: Bayesian linear regression with one covariate (%Biden)
-
 The results from models 1 and 2 suggest that x3, %Biden, might be the only contributing covariate to residential rooftop PV adoption. Test that by trying a simple Bayesian linear regression with x4 as the sole covariate:
 
 ## Specify model
@@ -379,6 +376,7 @@ GBR <- gelman.plot(lin_x3_split[[2]])
 # Effective sample size
 effectiveSize(lin_x3_split[[2]])
 ```
+
 ## Density plots
 ```{r}
 out_lin_x3_split <- as.matrix(lin_x3_split[[2]])
@@ -426,6 +424,7 @@ plot(data1$x, data1$y)
 lines(xpred, ci.x3[1,], col=3, lty=2)
 lines(xpred, ci.x3[2,], col=3, lty=2)
 ```
+
 # Model 4: exponential time-series analysis
 
 ```{r}
@@ -493,7 +492,6 @@ plot(jags.exp)
 ```
 
 ## Diagnostics
-
 ```{r}
 jags.burn_exp <- window(jags.exp, start=10000)
 GBR <- gelman.plot(jags.burn_exp)
@@ -647,4 +645,3 @@ TODO:
 1. CIs for lin_mv model
 2. CIs for heteroskedastic model
 3. CIs for single linear regression model
-4. model 3: time-series
