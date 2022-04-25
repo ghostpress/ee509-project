@@ -6,7 +6,7 @@ output: html_notebook
 
 # Background
 
-3 models to fit: (1) Bayesian linear regression; (2) Bayesian linear regression with heteroskedasticity in income data; and (3) time-series analysis. Objective: describe and determine factors for adoption of residential rooftop solar systems in Massachusetts towns.
+4 models to fit: (1) Bayesian multivariate linear regression; (2) Bayesian multivariate linear regression with heteroskedasticity in income data; (3) Bayesian single linear regression; and (3) time-series analysis (just for fun). Objective: describe and determine factors for adoption of residential rooftop solar systems in Massachusetts towns.
 
 # Setup
 ## Libraries
@@ -487,7 +487,7 @@ j.exp <- jags.model(file=textConnection(exp_model),
 ```{r}
 jags.exp <- coda.samples(model=j.exp,
                          variable.names=c("x", "S", "r", "tau", "y[3]"),
-                         n.iter=100000)
+                         n.iter=200000)
 
 plot(jags.exp)
 ```
@@ -495,24 +495,85 @@ plot(jags.exp)
 ## Diagnostics
 
 ```{r}
-GBR <- gelman.plot(jags.exp)
-
-jags.burn_exp <- window(jags.exp, start=80000)
+jags.burn_exp <- window(jags.exp, start=10000)
+GBR <- gelman.plot(jags.burn_exp)
 
 effectiveSize(jags.burn_exp) 
+```
+
+Looks like tau needs more samples in order to converge, but just 200,000 is a big ask for my laptop.
+
+## Parameter Confidence Intervals
+```{r}
+cS.exp <- quantile(out_exp[,"S"], c(0.025, 0.975))    ## S 
+cr.exp <- quantile(out_exp[,"r"], c(0.025, 0.975))    ## r
+ct.exp <- quantile(out_exp[,"tau"], c(0.025, 0.975))  ## tau
+cy.exp <- quantile(out_exp[,"y[3]"], c(0.025, 0.975)) ## missing y
+```
+
+## Confidence Interval Plots
+```{r}
+out_exp <- as.matrix(jags.burn_exp)
+
+# Pulling out the x's
+sel.x <- grep("x", colnames(out_exp))
+x.e <- out_exp[, sel.x]
+
+niter <- 10000
+xpred <- seq(2000:2021)
+npred <- length(xpred)
+
+ycred <- matrix(NA, nrow=niter, ncol=npred)
+
+for(i in 1:niter) {
+  ycred[i,] <- x.e[i,] + out_exp[i, "r"]
+}
+
+ci.e <- apply(ycred, 2, quantile, c(0.025, 0.975))
+
+plot(xpred, datat$y, main="Figure 3: CIs for time-series model")
+lines(xpred, ci.e[1,], col=3, lty=2)
+lines(xpred, ci.e[2,], col=3, lty=2)
+```
+
+## Missing Data
+```{r}
+plot(density(out_exp[,"y[3]"]), xlim=c(-100, 1000), main="Figure 4: Posterior for missing observation (2003)")
+abline(v=mean(out_exp[,"y[3]"]), col=2, lty=2)
+print(mean(out_exp[,"y[3]"]))
+
+plot(density(out_exp[,"r"]), main="Figure 5: Posterior for growth rate")
+abline(v=mean(out_exp[,"r"]), col=2, lty=2)
+print(mean(out_exp[,"r"]))
+```
+
+## Model Fit
+```{r}
+# DIC
+dic.exp <- dic.samples(j.exp, 1000, "pD")
+dic.exp <- sum(dic.exp$deviance) + sum(dic.exp$penalty)
+
+# WAIC
+# TODO: add likelihood to model
+
+print(paste("DIC: ", round(dic.exp, digits=3))) ##, " WAIC: "
 ```
 
 # Results
 
 Comparing the outputs of model 1 (simple Bayesian linear regression on 3 covariates), model 2 (Bayesian linear regression on 3 covariates with heteroskedasticity in income data), and model 3 (Bayesian linear regression on 1 covariate).
 
-Just from WAIC and DIC scores, model 2 appears to perform better as a descriptor of rooftop PV adoption. It has a much lower DIC than both model 1 and model 3, but the WAIC scores were the same. However, since both models 1 and 2 arrived at very similar estimates for the parameter values and their 95% CIs, I question how much the covariates actually contribute to rooftop PV adoption. This is curious, especially considering that in theory, model 2 should be able to model latent, "true" incomes as opposed to the highly error-prone reported income values, and one would expect higher incomes to be correlated with greater adoption because of the upfront and maintenance costs of rooftop PV systems. 
+Just from WAIC and DIC scores, model 2 appears to perform better as a descriptor of rooftop PV adoption. It has a much lower DIC than both model 1 and model 3, but the WAIC scores were the same. However, since both models 1 and 2 arrived at very similar estimates for the parameter values and their 95% CIs, I question how much the covariates actually contribute to the observed values of rooftop PV adoption. This is curious, especially considering that in theory, model 2 should be able to model latent, "true" incomes as opposed to the highly error-prone reported income values, and one would expect higher incomes to be correlated with greater adoption because of the upfront and maintenance costs of rooftop PV systems. 
 
 With the exception of x3, or %Biden, the covariates seem to have mild or very little effect on y (their means are at or around 0, with narrow CIs). betas[4], or the slope parameter on x3, suggests that a greater fraction of votes for Biden correlate with an increase in rooftop PV adoption. Perhaps x3 is thus the only significant covariate. 
 
 Testing this assumption with model 3, which uses just voting data to predict adoption, is inconclusive. Model 3 arrived at the same parameter estimates as both models 1 and 2 for S, the intercept term, and the slope on voting, but performed worse according to DIC, despite having fewer parameters. The WAIC score was again the same as that for the other two models. 
 
-## Summary tables
+Finally, model 4 (exponential time-series) is a departure from the previous regression models. Rather than exploring factors affecting residential rooftop solar adoption, the time-series models the change in the number of installations over time. Thus, there are no covariates. The results of this model (eg. DIC, parameter values) can't be compared to those of models 1-3.
+
+Model 4 produced quite wide confidence intervals for almost all of its parameters, including negative values for the estimate of the missing observation in 2003. This may be partially because there is a steep drop in the number of installed PV systems starting in 2016, whereas previously the trend had been monotonically increasing. 
+
+## Summary tables: models 1-3
 ```{r}
 params <- c("S", "betas[1]", "betas[2]", "betas[3]", "betas[4]")
 
@@ -556,7 +617,7 @@ knitr::kable(res_df, caption="Table 1: Parameter values for models 1, 2, and 3")
 knitr::kable(fit_df, caption="Table 2: DIC and WAIC values for models 1, 2, and 3")
 ```
 
-## Plotting param values
+## Comparing param values visually
 ```{r}
 MCMCplot(object=jags.burn_lin_mv,
          object2=jags.burn_lin_he,
@@ -564,9 +625,23 @@ MCMCplot(object=jags.burn_lin_mv,
          offset=0.2,
          ISB=FALSE,
          exact=TRUE,
-         main="Figure 3: Comparison of parameters for models 1 and 2")
+         main="Figure 6: Comparison of parameters for models 1 and 2")
 ```
 
+## Summary tables: model 4
+```{r}
+params_t <- c("r", "S", "tau", "y[3]")
+
+model4_vals <- c(mean(out_exp[,"r"]), mean(out_exp[,"S"]),
+                 mean(out_exp[,"tau"]), mean(out_exp[,"y[3]"]))
+
+model4_ci_l <- c(cS.exp[1], cr.exp[1], ct.exp[1], cy.exp[1])
+model4_ci_u <- c(cS.exp[2], cr.exp[2], ct.exp[2], cy.exp[2])
+
+res_t_df <- data.frame(params_t, model4_vals, model4_ci_l, model4_ci_u)
+
+knitr::kable(res_t_df, caption="Table 3: Parameter values for time-series model")
+```
 
 TODO: 
 1. CIs for lin_mv model
