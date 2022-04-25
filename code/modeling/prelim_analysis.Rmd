@@ -426,6 +426,81 @@ plot(data1$x, data1$y)
 lines(xpred, ci.x3[1,], col=3, lty=2)
 lines(xpred, ci.x3[2,], col=3, lty=2)
 ```
+# Model 4: exponential time-series analysis
+
+```{r}
+inst <- read.csv("/home/lucia/bu/year4/semester2/EE509/project/ee509-project/data/ready/timeseries/timeseries.csv")
+
+yr <- inst$year
+y  <- inst$inst
+
+yr <- append(yr, 2002, after=2)
+y  <- append(y, "NA", after=2)
+y  <- as.numeric(y)
+```
+
+## Specify model
+```{r}
+exp_model <- "
+model {
+  
+  r ~ dnorm(r0, Vr)     ## prior on intrinsic growth rate
+  tau ~ dgamma(t1, t2)  ## prior on process variance
+  S ~ dgamma(s1, s2)    ## prior on observation error
+  x[1] ~ dnorm(x0, Vx)  ## prior on initial x 
+  
+  for(t in 1:n) {
+    y[t] ~ dnorm(x[t], tau)
+  }
+  
+  for(t in 2:n) {
+    mu[t] <- x[t-1] + r
+    x[t] ~ dnorm(mu[t], S)
+  }
+}"
+```
+
+## MCMC Setup
+```{r}
+datat <- list(y=y, n=length(y))
+
+# Specify priors
+datat$r0 <- 0
+datat$Vr <- 0.001
+datat$x0 <- 1
+datat$Vx <- 0.001
+datat$t1 <- 0.001
+datat$t2 <- 0.001
+datat$s1 <- 0.001
+datat$s2 <- 0.001
+
+# Initial values for all state variables and latent X's
+inits = list(x=y, r=0.8, tau=100, S=1)
+
+# Run JAGS
+j.exp <- jags.model(file=textConnection(exp_model),
+                          data=datat,
+                          inits=inits,
+                          n.chains=3)
+```
+
+```{r}
+jags.exp <- coda.samples(model=j.exp,
+                         variable.names=c("x", "S", "r", "tau", "y[3]"),
+                         n.iter=100000)
+
+plot(jags.exp)
+```
+
+## Diagnostics
+
+```{r}
+GBR <- gelman.plot(jags.exp)
+
+jags.burn_exp <- window(jags.exp, start=80000)
+
+effectiveSize(jags.burn_exp) 
+```
 
 # Results
 
