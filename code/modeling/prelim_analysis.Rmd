@@ -1,12 +1,14 @@
 ---
-title: "EE 509 Project: Preliminary Analysis"
+title: 'EE 509 Project: Preliminary Analysis'
 author: "Lucia Vilallonga"
-output: html_notebook
 ---
 
 # Background
 
-4 models to fit: (1) Bayesian multivariate linear regression; (2) Bayesian multivariate linear regression with heteroskedasticity in income data; (3) Bayesian single linear regression; and (3) time-series analysis (just for fun). Objective: describe and determine factors for adoption of residential rooftop solar systems in Massachusetts towns.
+***REWRITE THIS***
+4 models to fit: (1) Bayesian multivariate linear regression; (2) Bayesian multivariate linear regression with errors in income data; (3) Bayesian single linear regression; and (3) time-series analysis (just for fun). Objective: describe and determine factors for adoption of residential rooftop solar systems in Massachusetts towns.
+
+Multiple regression: can do a predicted vs observed plot
 
 # Setup
 ## Libraries
@@ -14,9 +16,9 @@ output: html_notebook
 library(sf)             ## GIS data
 library(rjags)          ## MCMC
 library(LaplacesDemon)  ## WAIC
-library(MCMCvis)        ## Visualize MCMC outputs for particular params
-library(pdftools)       ## convert MCMCvis PDF output to image
-library(imager)         ## show images from file
+#library(MCMCvis)        ## Visualize MCMC outputs for particular params
+#library(pdftools)       ## convert MCMCvis PDF output to image
+#library(imager)         ## show images from file
 ```
 
 ## Load and Format Data
@@ -31,7 +33,14 @@ PV <- merge(X, y, by="TOWN")
 # First models will not include spatial variables
 # For now, just use the average income and education values (not sum/highest) and %Biden as covariates
 dat <- list(y=PV$totalInst, x1=PV$avgEd, x2=PV$avgInc, x3=PV$Biden.)
-X <- model.matrix(~x1 + x2 + x3, data=dat)  ## prepends a column of 1s and puts xj into matrix X
+
+# Remove unneeded files (encountering memory issues)
+rm(PV)
+```
+
+Which variables are correlated with adoption?
+```{r}
+pairs(dat)
 ```
 
 # First model: Bayesian GLM with Poisson regression
@@ -49,7 +58,8 @@ $$ln(L) = \sum_{i=1}^n y_i(\beta X_i) - \sum_{i=1}^ne^{\beta X_i}$$
 ```{r}
 poisson_glm <- "
 model {
-  beta ~ dmnorm(B0, Vb)  ## prior on betas
+  beta[1] ~ dnorm(B01, Vb1)  ## prior on beta 1
+  beta[2] ~ dnorm(B02, Vb2)  ## prior on beta 2
 
   for(i in 1:n) {
     log(lambda[i]) <- beta[1] + beta[2]*x[i]    ## process model
@@ -59,7 +69,132 @@ model {
 }"
 ```
 
-Poisson regression doesn't seem to work; can't get the model to converge, even with upwards of 200,000 samples and playing around with initial values. The effective sample size is always in the single digits. Moving on to try a Bayesian linear model instead.
+```{r}
+datap <- list(y=dat$y, x=dat$x3)
+
+# Specify priors
+datap$B01 <- 0      ## priors on B1 means
+datap$B02 <- 0      ## priors on B2 means
+datap$Vb1 <- 0.001  ## priors on B1 variances
+datap$Vb2 <- 0.001  ## priors on B2 variances
+datap$n   <- length(datap$y)  ## n = no. of observations; m = no. of covariates
+
+# Initialize JAGS
+j.pois <- jags.model(file=textConnection(poisson_glm),
+                       data=datap, 
+                       n.chains=3)
+```
+
+```{r}
+# Run JAGS
+jags.pois <- coda.samples(model=j.pois, 
+                          variable.names=c("beta[1]", "beta[2]", "like"),
+                          n.iter=70000)  ## 90000 had good convergence but memory issues
+```
+
+## Splitting JAGS output
+Code source: Michael Dietze
+```{r}
+# Function to split JAGS output
+codaSplit <- function(jags.out,pattern){
+  out = list()
+  mfit = as.matrix(jags.out,chains=TRUE)
+  pat.cols = grep(pattern,colnames(mfit),fixed=TRUE)
+  chain.col = which(colnames(mfit)=="CHAIN")
+  out[[1]] = mat2mcmc.list(mfit[,c(chain.col,pat.cols)])
+  out[[2]]   = mat2mcmc.list(mfit[,-pat.cols])
+  return(out)
+}
+
+mat2mcmc.list <- function(w) {
+  temp <- list()
+  chain.col <- which(colnames(w) == "CHAIN")
+  for (i in unique(w[, "CHAIN"])) {
+    temp[[i]] <- coda:::as.mcmc(w[w[, "CHAIN"] == i, -chain.col])
+  }
+  return(as.mcmc.list(temp))
+}
+```
+
+## Diagnostics
+```{r}
+# Split JAGS object (don't want to plot traces for the likelihoods)
+pois_split <- codaSplit(jags.pois, "like")
+
+# Trace plots
+plot(pois_split[[2]])
+
+# Brooks-Gelman-Rubin
+GBR <- gelman.plot(pois_split[[2]])
+
+# Remove burn-in
+jags.burn_pois <- window(jags.pois, start=5000)
+burn_pois_split <- codaSplit(jags.burn_pois, "like")
+
+# Checking convergence & posterior densities, GBR for burn-in
+plot(burn_pois_split[[2]])
+GBR <- gelman.plot(burn_pois_split[[2]])
+
+# Effective sample size
+effectiveSize(pois_split[[2]])  
+
+# Conclusions: burn-in does not improve GBR, convergence, or effective size
+# Use initial outputs instead
+```
+
+## Density plots
+```{r}
+out_pois_split <- as.matrix(pois_split[[2]])
+
+plot(density(out_pois_split[,1]), main="Intercept", 
+     sub="Density of MCMC samples for intercept term (Poisson model)", cex.sub=0.8) 
+plot(density(out_pois_split[,2]), main="Beta[1]", 
+     sub="Density of MCMC samples for slope term (Poisson model)", cex.sub=0.8)  
+```
+
+## Confidence Interval Plots
+```{r}
+niter <- 10000
+xpred <- seq(0.3, 1.0, length=50)
+npred <- length(xpred)
+
+ypred <- matrix(NA, nrow=niter, ncol=npred)
+ycred <- matrix(NA, nrow=niter, ncol=npred)
+
+for(i in 1:niter){
+  Ey  <- exp(out_pois_split[i, 1] + out_pois_split[i, 2]*xpred)
+  ycred[i,] <- Ey
+  ypred[i,] <- rpois(npred, Ey)
+}
+
+ci <- apply(ycred, 2, quantile, c(0.025, 0.975))  
+pi <- apply(ypred, 2, quantile, c(0.025, 0.975))
+
+plot(datap$x, datap$y, 
+     main="CI, PI Plots for Bayesian Poisson Model",
+     xlab="x3, %Biden",
+     ylab="N, adoptions")
+
+lines(xpred, ci[1,], col=3, lty=2)
+lines(xpred, ci[2,], col=3, lty=2)
+
+lines(xpred, pi[1,], col=2, lty=2)
+lines(xpred, pi[2,], col=2, lty=2)
+
+legend(0.4, 800, legend=c("CI", "PI"), col=c(3, 2), lty=2, cex=0.8)
+```
+
+## Model Fit
+```{r}
+# DIC
+dic.pois <- dic.samples(j.pois, 1000, "pD")
+dic.pois <- sum(dic.pois$deviance) + sum(dic.pois$penalty)
+
+# WAIC
+waic.pois <- WAIC(as.matrix(pois_split[[1]]))
+
+print(paste("DIC: ", round(dic.pois, digits=3), " WAIC: ", round(waic.pois$WAIC, digits=3)))
+```
 
 # Model 1a: Bayesian linear regression
 
@@ -86,6 +221,7 @@ model {
 
 ## MCMC Setup
 ```{r}
+X <- model.matrix(~x1 + x2 + x3, data=dat)  ## prepends a column of 1s and puts xj into matrix X
 datam <- list(y=dat$y, X=X)
 
 # Specify priors
@@ -109,30 +245,6 @@ jags.lin_mv <- coda.samples(model=j.lin_mv,
                           n.iter=10000)
 
 #out_lin_mv <- as.matrix(jags.lin_mv)
-```
-
-## Splitting JAGS output
-Code source: Michael Dietze
-```{r}
-# Function to split JAGS output
-codaSplit <- function(jags.out,pattern){
-  out = list()
-  mfit = as.matrix(jags.out,chains=TRUE)
-  pat.cols = grep(pattern,colnames(mfit),fixed=TRUE)
-  chain.col = which(colnames(mfit)=="CHAIN")
-  out[[1]] = mat2mcmc.list(mfit[,c(chain.col,pat.cols)])
-  out[[2]]   = mat2mcmc.list(mfit[,-pat.cols])
-  return(out)
-}
-
-mat2mcmc.list <- function(w) {
-  temp <- list()
-  chain.col <- which(colnames(w) == "CHAIN")
-  for (i in unique(w[, "CHAIN"])) {
-    temp[[i]] <- coda:::as.mcmc(w[w[, "CHAIN"] == i, -chain.col])
-  }
-  return(as.mcmc.list(temp))
-}
 ```
 
 ## Diagnostics
@@ -191,12 +303,13 @@ c3.lin_mv <- quantile(out_lin_mv_split[,"betas[3]"], c(0.025, 0.975))  ## beta[3
 c4.lin_mv <- quantile(out_lin_mv_split[,"betas[4]"], c(0.025, 0.975))  ## beta[4] (slope on x3, %voBiden)
 ```
 
-# Second Model: Bayesian linear regression with heteroskedasticity in income data
+
+# Model 2: Bayesian linear regression with errors in income data
 
 Process model:
 $$\mu_i = \beta X_i$$
 
-General heteroskedastic data model:
+General errors in variables data model:
 $$y_i \sim Normal(\mu_i, S) \\ X_{inc, i, observed} \sim Normal(X_{inc, i}, \alpha_i X_{inc, i})$$
 
 Parameter model:
@@ -204,7 +317,7 @@ $$\beta \sim Normal(B_0, V_b) \\ S \sim Gamma(s_1, s_2) \\ \alpha \sim Normal(a_
 
 In this case, the American Community Survey (ACS) income data also reports Margins of Error (MOE) for each estimate, which can be fed directly into JAGS as precisions, instead of estimating with the alpha parameters:
 
-## SE Calculations for heteroskedastic income data
+## SE Calculations for errors in income data
 ```{r}
 MOE <- PV$moeInc
 SE  <- abs(MOE) / 1.645   ## source: US Census Bureau, 2009
@@ -215,7 +328,6 @@ SE  <- abs(MOE) / 1.645   ## source: US Census Bureau, 2009
 linear_glm_he <- "
 model {
   betas ~ dmnorm(B0, Vb)  ## prior on betas
-  #alpha ~ dlorm(a1, Va)  ## prior on X variance param. (zero-bound)
   S ~ dgamma(s1, s2)
   
   for(i in 1:n) {
@@ -316,15 +428,18 @@ c4.lin_he <- quantile(out_burn_he[,"betas[4]"], c(0.025, 0.975))  ## beta[4] (sl
 # Model 3: Bayesian linear regression with one covariate (%Biden)
 The results from models 1 and 2 suggest that x3, %Biden, might be the only contributing covariate to residential rooftop PV adoption. Test that by trying a simple Bayesian linear regression with x4 as the sole covariate:
 
+***REDO THIS ONE***
+
 ## Specify model
 ```{r}
 linear_glm_x3 <- "
 model {
-  betas ~ dmnorm(B0, Vb)  ## prior on betas
+  beta[1] ~ dnorm(B01, Vb1)
+  beta[2] ~ dnorm(B02, Vb2)
   S ~ dgamma(s1, s2)      ## prior on precision
   
   for(i in 1:n) {
-    mu[i] <- betas[1] + betas[2]*x[i]
+    mu[i] <- beta[1] + beta[2]*x[i]
     y[i] ~ dnorm(mu[i], S)
     like[i] <- dnorm(y[i], mu[i], S)
   }
@@ -352,7 +467,7 @@ j.lin_x3 <- jags.model(file=textConnection(linear_glm_x3),
 ```{r}
 # Run JAGS
 jags.lin_x3 <- coda.samples(model=j.lin_x3, 
-                          variable.names=c("betas", "S", "like"),
+                          variable.names=c("beta[1]", "beta[2]", "S", "like"),
                           n.iter=10000)
 ```
 
@@ -503,6 +618,8 @@ Looks like tau needs more samples in order to converge, but just 200,000 is a bi
 
 ## Parameter Confidence Intervals
 ```{r}
+out_exp <- as.matrix(jags.burn_exp)
+
 cS.exp <- quantile(out_exp[,"S"], c(0.025, 0.975))    ## S 
 cr.exp <- quantile(out_exp[,"r"], c(0.025, 0.975))    ## r
 ct.exp <- quantile(out_exp[,"tau"], c(0.025, 0.975))  ## tau
@@ -511,8 +628,6 @@ cy.exp <- quantile(out_exp[,"y[3]"], c(0.025, 0.975)) ## missing y
 
 ## Confidence Interval Plots
 ```{r}
-out_exp <- as.matrix(jags.burn_exp)
-
 # Pulling out the x's
 sel.x <- grep("x", colnames(out_exp))
 x.e <- out_exp[, sel.x]
@@ -559,7 +674,7 @@ print(paste("DIC: ", round(dic.exp, digits=3))) ##, " WAIC: "
 
 # Results
 
-Comparing the outputs of model 1 (simple Bayesian linear regression on 3 covariates), model 2 (Bayesian linear regression on 3 covariates with heteroskedasticity in income data), and model 3 (Bayesian linear regression on 1 covariate).
+Comparing the outputs of model 1 (simple Bayesian linear regression on 3 covariates), model 2 (Bayesian linear regression on 3 covariates with errors in income data), and model 3 (Bayesian linear regression on 1 covariate).
 
 Just from WAIC and DIC scores, model 2 appears to perform better as a descriptor of rooftop PV adoption. It has a much lower DIC than both model 1 and model 3, but the WAIC scores were the same. However, since both models 1 and 2 arrived at very similar estimates for the parameter values and their 95% CIs, I question how much the covariates actually contribute to the observed values of rooftop PV adoption. This is curious, especially considering that in theory, model 2 should be able to model latent, "true" incomes as opposed to the highly error-prone reported income values, and one would expect higher incomes to be correlated with greater adoption because of the upfront and maintenance costs of rooftop PV systems. 
 
@@ -643,5 +758,5 @@ knitr::kable(res_t_df, caption="Table 3: Parameter values for time-series model"
 
 TODO: 
 1. CIs for lin_mv model
-2. CIs for heteroskedastic model
+2. CIs for errors in variables model
 3. CIs for single linear regression model
