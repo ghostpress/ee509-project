@@ -6,9 +6,11 @@ author: "Lucia Vilallonga"
 # Background
 
 ***REWRITE THIS***
-4 models to fit: (1) Bayesian multivariate linear regression; (2) Bayesian multivariate linear regression with errors in income data; (3) Bayesian single linear regression; and (3) time-series analysis (just for fun). Objective: describe and determine factors for adoption of residential rooftop solar systems in Massachusetts towns.
+Objective: describe and determine factors for adoption of residential rooftop solar systems in Massachusetts towns.
 
-Multiple regression: can do a predicted vs observed plot
+Models to fit:  (1) Bayesian GLM with Poisson; (2) Bayesian single linear regression; (3) Bayesian single linear regression with errors in variables; (4) time-series analysis (extra).
+
+Supplementary: Bayesian multivariate linear regression shows that none of the covariates except x3 have an effect on Y, which is expected given the pairs plot. 
 
 # Setup
 ## Libraries
@@ -41,9 +43,25 @@ rm(PV)
 Which variables are correlated with adoption?
 ```{r}
 pairs(dat)
+
+plot(dat$x1, dat$x2,
+     main="Correlation Between Education and Income",
+     xlab="Education", ylab="Income")
+
+plot(dat$x1, dat$x3,
+     main="Correlation Between Education and %Biden",
+     xlab="Education", ylab="%Biden")
+
+plot(dat$x2, dat$x3,
+     main="Correlation Between Income and %Biden",
+     xlab="Income", ylab="%Biden")
+
+plot(dat$x3, dat$y,
+     main="Correlation Between %Biden and Rooftop PV Adoptions",
+     xlab="%Biden", ylab="N adoptions")
 ```
 
-# First model: Bayesian GLM with Poisson regression
+# Model 1: Bayesian GLM with Poisson regression
 
 Process model:
 $$log(\lambda_i) = \boldsymbol{\beta} X_i$$
@@ -152,7 +170,7 @@ plot(density(out_pois_split[,2]), main="Beta[1]",
      sub="Density of MCMC samples for slope term (Poisson model)", cex.sub=0.8)  
 ```
 
-## Confidence Interval Plots
+## Credible Interval Plots
 ```{r}
 niter <- 10000
 xpred <- seq(0.3, 1.0, length=50)
@@ -196,7 +214,138 @@ waic.pois <- WAIC(as.matrix(pois_split[[1]]))
 print(paste("DIC: ", round(dic.pois, digits=3), " WAIC: ", round(waic.pois$WAIC, digits=3)))
 ```
 
-# Model 1a: Bayesian linear regression
+
+# Model 2: Bayesian single linear regression 
+The results from models S and Sa, as well as the pairs plot, suggest that x3, %Biden, might be the only contributing covariate to residential rooftop PV adoption. Test that by trying a simple Bayesian linear regression with x3 as the sole covariate:
+
+***REDO THIS ONE***
+
+## Specify model
+```{r}
+linear_glm_x3 <- "
+model {
+  beta[1] ~ dnorm(B01, Vb1)
+  beta[2] ~ dnorm(B02, Vb2)
+  S ~ dgamma(s1, s2)      ## prior on precision
+  
+  for(i in 1:n) {
+    mu[i] <- beta[1] + beta[2]*x[i]
+    y[i] ~ dnorm(mu[i], S)
+    like[i] <- dnorm(y[i], mu[i], S)
+  }
+}"
+```
+
+## MCMC Setup
+```{r}
+data1 <- list(y=dat$y, x=dat$x3)
+
+# Specify priors
+data1$B01 <- 0      ## priors on B1 means
+data1$B02 <- 0      ## priors on B2 means
+data1$Vb1 <- 0.001  ## priors on B1 variances
+data1$Vb2 <- 0.001  ## priors on B2 variances
+data1$s1  <- 0.001
+data1$s2  <- 0.001
+data1$n  <- length(data1$y) ## n = no. of observations; m = no. of covariates
+
+# Initialize JAGS
+j.lin_x3 <- jags.model(file=textConnection(linear_glm_x3),
+                       data=data1, 
+                       n.chains=3)
+```
+
+## Run MCMC
+```{r}
+# Run JAGS
+jags.lin_x3 <- coda.samples(model=j.lin_x3, 
+                          variable.names=c("beta[1]", "beta[2]", "S", "like"),
+                          n.iter=30000)
+```
+
+## Diagnostics
+```{r}
+# Split MCMC output
+lin_x3_split <- codaSplit(jags.lin_x3, "like")
+plot(lin_x3_split[[2]])
+
+# Remove burn-in
+jags.burn_lin_x3 <- window(jags.lin_x3, start=2000)
+out_burn_lin_x3  <- as.matrix(jags.burn_lin_x3) 
+burn_lin_x3_split <- codaSplit(jags.burn_lin_x3, "like")
+
+# Checking convergence & posterior densities
+plot(burn_lin_x3_split[[2]])
+
+# Brooks-Gelman-Rubin
+GBR <- gelman.plot(burn_lin_x3_split[[2]])
+
+# Effective sample size
+effectiveSize(burn_lin_x3_split[[2]])
+```
+
+## Density plots
+```{r}
+out_lin_x3_split <- as.matrix(burn_lin_x3_split[[2]])
+
+plot(density(out_lin_x3_split[,1]), main="Intercept", 
+     sub="Density of MCMC samples for intercept term (linear model)", cex.sub=0.8) 
+plot(density(out_lin_x3_split[,2]), main="Beta[1]", 
+     sub="Density of MCMC samples for slope on %Biden term (linear model)", cex.sub=0.8)  
+```
+
+## Model Fit
+```{r}
+# DIC
+dic.lin_x3 <- dic.samples(j.lin_x3, 1000, "pD")
+dic.lin_x3 <- sum(dic.lin_x3$deviance) + sum(dic.lin_x3$penalty)
+
+# WAIC
+waic.lin_x3 <- WAIC(as.matrix(lin_x3_split[[1]]))
+
+print(paste("DIC: ", round(dic.lin_x3, digits=3), " WAIC: ", round(waic.lin_x3$WAIC, digits=3)))
+```
+
+## Parameter Confidence Intervals
+```{r}
+cS.lin_x3 <- quantile(out_burn_lin_x3[,"S"], c(0.025, 0.975))         ## S 
+c1.lin_x3 <- quantile(out_burn_lin_x3[,"beta[1]"], c(0.025, 0.975))  ## beta[1] (intercept)
+c2.lin_x3 <- quantile(out_burn_lin_x3[,"beta[2]"], c(0.025, 0.975))  ## beta[2] (slope on x3, %Biden)
+```
+
+## Credible and Predictive Interval Plots
+```{r}
+niter <- 10000
+xpred <- seq(0.3, 1.0, length=50)
+npred <- length(xpred)
+
+ypred <- matrix(NA, nrow=niter, ncol=npred)
+ycred <- matrix(NA, nrow=niter, ncol=npred)
+
+for(i in 1:niter) {
+  Ey <- out_burn_lin_x3[i, "beta[1]"] + out_burn_lin_x3[i, "beta[2]"]*xpred[i]
+  ycred[i,] <- Ey
+  ypred[i,] <- rnorm(1, Ey, out_burn_lin_x3[i, "S"])
+}
+
+ci.x3 <- apply(ycred, 2, quantile, c(0.025, 0.975), na.rm=TRUE)
+pi.x3 <- apply(ypred, 2, quantile, c(0.025, 0.975), na.rm=TRUE)
+
+plot(data1$x, data1$y,
+     main="CI, PI Plots for Bayesian Poisson Model",
+     xlab="x3, %Biden",
+     ylab="N, adoptions")
+
+lines(xpred, ci.x3[1,], col=3, lty=2)
+lines(xpred, ci.x3[2,], col=3, lty=2)
+
+lines(xpred, pi.x3[1,], col=2, lty=2)
+lines(xpred, pi.x3[2,], col=2, lty=2)
+
+legend(0.4, 800, legend=c("CI", "PI"), col=c(3, 2), lty=2, cex=0.8)
+```
+
+# Model S (supplementary): Bayesian multivariate linear regression
 
 Process model:
 $$\mu_i = \beta X_i$$
@@ -303,8 +452,7 @@ c3.lin_mv <- quantile(out_lin_mv_split[,"betas[3]"], c(0.025, 0.975))  ## beta[3
 c4.lin_mv <- quantile(out_lin_mv_split[,"betas[4]"], c(0.025, 0.975))  ## beta[4] (slope on x3, %voBiden)
 ```
 
-
-# Model 2: Bayesian linear regression with errors in income data
+# Model Sa: Bayesian multivariate linear regression with errors in income data
 
 Process model:
 $$\mu_i = \beta X_i$$
@@ -425,121 +573,6 @@ c3.lin_he <- quantile(out_burn_he[,"betas[3]"], c(0.025, 0.975))  ## beta[3] (sl
 c4.lin_he <- quantile(out_burn_he[,"betas[4]"], c(0.025, 0.975))  ## beta[4] (slope on x3, %Biden)
 ```
 
-# Model 3: Bayesian linear regression with one covariate (%Biden)
-The results from models 1 and 2 suggest that x3, %Biden, might be the only contributing covariate to residential rooftop PV adoption. Test that by trying a simple Bayesian linear regression with x4 as the sole covariate:
-
-***REDO THIS ONE***
-
-## Specify model
-```{r}
-linear_glm_x3 <- "
-model {
-  beta[1] ~ dnorm(B01, Vb1)
-  beta[2] ~ dnorm(B02, Vb2)
-  S ~ dgamma(s1, s2)      ## prior on precision
-  
-  for(i in 1:n) {
-    mu[i] <- beta[1] + beta[2]*x[i]
-    y[i] ~ dnorm(mu[i], S)
-    like[i] <- dnorm(y[i], mu[i], S)
-  }
-}"
-```
-
-## MCMC Setup
-```{r}
-data1 <- list(y=dat$y, x=dat$x3)
-
-# Specify priors
-data1$B0 <- as.vector(c(0, 0))     ## priors on param.s means
-data1$Vb <- solve(diag(10000, 2))  ## priors on param.s variances
-data1$s1  <- 0.001
-data1$s2  <- 0.001
-data1$n  <- length(data1$y) ## n = no. of observations; m = no. of covariates
-
-# Initialize JAGS
-j.lin_x3 <- jags.model(file=textConnection(linear_glm_x3),
-                       data=data1, 
-                       n.chains=3)
-```
-
-## Run MCMC
-```{r}
-# Run JAGS
-jags.lin_x3 <- coda.samples(model=j.lin_x3, 
-                          variable.names=c("beta[1]", "beta[2]", "S", "like"),
-                          n.iter=10000)
-```
-
-## Diagnostics
-```{r}
-# Split MCMC output
-lin_x3_split <- codaSplit(jags.lin_x3, "like")
-plot(lin_x3_split[[2]])
-
-# Remove burn-in
-jags.burn_lin_x3 <- window(jags.lin_x3, start=500)
-out_burn_lin_x3  <- as.matrix(jags.burn_lin_x3) 
-jags.burn_lin_x3_split <- codaSplit(jags.burn_lin_x3, "like")
-
-# Checking convergence & posterior densities
-plot(jags.burn_lin_x3_split[[2]])
-
-# Brooks-Gelman-Rubin
-GBR <- gelman.plot(lin_x3_split[[2]])
-
-# Effective sample size
-effectiveSize(lin_x3_split[[2]])
-```
-
-## Density plots
-```{r}
-out_lin_x3_split <- as.matrix(lin_x3_split[[2]])
-
-plot(density(out_lin_x3_split[,1]), main="Intercept", 
-     sub="Density of MCMC samples for intercept term", cex.sub=0.8) 
-plot(density(out_lin_x3_split[,2]), main="Beta[1]", 
-     sub="Density of MCMC samples for slope on %Biden term", cex.sub=0.8)  
-```
-
-## Model Fit
-```{r}
-# DIC
-dic.lin_x3 <- dic.samples(j.lin_x3, 1000, "pD")
-dic.lin_x3 <- sum(dic.lin_x3$deviance) + sum(dic.lin_x3$penalty)
-
-# WAIC
-waic.lin_x3 <- WAIC(as.matrix(lin_x3_split[[1]]))
-
-print(paste("DIC: ", round(dic.lin_x3, digits=3), " WAIC: ", round(waic.lin_x3$WAIC, digits=3)))
-```
-
-## Parameter Confidence Intervals
-```{r}
-cS.lin_x3 <- quantile(out_lin_x3_split[,"S"], c(0.025, 0.975))         ## S 
-c1.lin_x3 <- quantile(out_lin_x3_split[,"betas[1]"], c(0.025, 0.975))  ## beta[1] (intercept)
-c2.lin_x3 <- quantile(out_lin_x3_split[,"betas[2]"], c(0.025, 0.975))  ## beta[2] (slope on x3, %Biden)
-```
-
-## Confidence Interval Plots
-```{r}
-niter <- 10000
-xpred <- seq(0, 1, by=0.005)
-npred <- length(xpred)
-
-ycred <- matrix(NA, nrow=niter, ncol=npred)
-
-for(i in 1:niter) {
-  ycred[i,] <- out_burn_lin_x3[i, "betas[1]"] + out_burn_lin_x3[i, "betas[2]"]*xpred[i]
-}
-
-ci.x3 <- apply(ycred, 2, quantile, c(0.025, 0.975), na.rm=TRUE)
-
-plot(data1$x, data1$y)
-lines(xpred, ci.x3[1,], col=3, lty=2)
-lines(xpred, ci.x3[2,], col=3, lty=2)
-```
-
 # Model 4: exponential time-series analysis
 
 ```{r}
@@ -626,7 +659,7 @@ ct.exp <- quantile(out_exp[,"tau"], c(0.025, 0.975))  ## tau
 cy.exp <- quantile(out_exp[,"y[3]"], c(0.025, 0.975)) ## missing y
 ```
 
-## Confidence Interval Plots
+## Credible Interval Plots
 ```{r}
 # Pulling out the x's
 sel.x <- grep("x", colnames(out_exp))
