@@ -138,13 +138,13 @@ c3.lin_mv <- quantile(out_lin_mv_split[,"betas[3]"], c(0.025, 0.975))  ## beta[3
 c4.lin_mv <- quantile(out_lin_mv_split[,"betas[4]"], c(0.025, 0.975))  ## beta[4] (slope on x3, %voBiden)
 ```
 
-# Model Sb (supplementary): Bayesian multivariate linear regression with errors in income data
+# Model Sb: Bayesian multiple linear regression with errors in income data
 
 Process model:
 $$\mu_i = \beta X_i$$
 
 General errors in variables data model:
-$$y_i \sim Normal(\mu_i, S) \\ X_{inc, i, observed} \sim Normal(X_{inc, i}, \alpha_i X_{inc, i})$$
+$$y_i \sim Normal(\mu_i, S) \\ X_{inc, i, observed} \sim Normal(\alpha_i X_{inc, i}, \tau^2)$$
 
 Parameter model:
 $$\beta \sim Normal(B_0, V_b) \\ S \sim Gamma(s_1, s_2) \\ \alpha \sim Normal(a_0, V_a)$$
@@ -159,7 +159,7 @@ SE  <- abs(MOE) / 1.645   ## source: US Census Bureau, 2009
 
 ## Specify Model 
 ```{r}
-linear_glm_he <- "
+linear_mv_glm_err <- "
 model {
   betas ~ dmnorm(B0, Vb)  ## prior on betas
   S ~ dgamma(s1, s2)
@@ -180,49 +180,50 @@ model {
 
 ## MCMC Setup
 ```{r}
-datah <- list(y=dat$y, X=X, SE=SE)
+X <- model.matrix(~x1 + x2 + x3, data=dat)  ## prepends a column of 1s and puts xj into matrix X
+datae <- list(y=dat$y, X=X, SE=SE)
 
 # Create a dummy vector x3 for the income data:
-datah$dummy_x3 <- datah$X[,3]
+datae$dummy_x3 <- datae$X[,3]
 
 # Specify priors:
-datah$B0 <- as.vector(c(0, 0, 0, 0))
-datah$Vb <- solve(diag(10000, 4))
-datah$s1 <- 0.001
-datah$s2 <- 0.001
-datah$n  <- length(datah$y)
+datae$B0 <- as.vector(c(0, 0, 0, 0))
+datae$Vb <- solve(diag(10000, 4))
+datae$s1 <- 0.001
+datae$s2 <- 0.001
+datae$n  <- length(datae$y)
 
 # Initialize JAGS:
-j.lin_he <- jags.model(file=textConnection(linear_glm_he),
-                       data=datah,
+j.lin_err <- jags.model(file=textConnection(linear_mv_glm_err),
+                       data=datae,
                        n.chains=3)
 ```
 
 ```{r}
-jags.lin_he <- coda.samples(model=j.lin_he,
+jags.lin_err <- coda.samples(model=j.lin_err,
                             variable.names=c("betas", "S", "x3.hat", "like"),
                             n.iter=10000)
 ```
 
 ```{r}
-out_he <- as.matrix(jags.lin_he)
+out_err <- as.matrix(jags.lin_err)
 
-plot(density(datah$dummy_x3), main="Observed incomes")
-plot(density(out_he[,356:705]), main="Sampled incomes using MOE")
+plot(density(datae$dummy_x3), main="Observed incomes")
+plot(density(out_err[,356:705]), main="Sampled incomes using MOE")
 ```
 
 ## Diagnostics
 ```{r}
 # Plots are commented out below bc couldn't split MCMC object 2x, 
 # so with like and x3.hat there are 705 plots total
-# plot(jags.lin_he)  ## good convergence on betas, S
-# GBR <- gelman.plot(jags.lin_he)  ## burn-in should be around 1000
+# plot(jags.lin_err)  ## good convergence on betas, S
+# GBR <- gelman.plot(jags.lin_err)  ## burn-in should be around 1000
 
 # Burn-in:
-jags.burn_lin_he <- window(jags.lin_he, start=1000)
+jags.burn_lin_err <- window(jags.lin_err, start=1000)
 
 # Using MCMCvis to get the trace plots of just S and betas
-MCMCtrace(jags.burn_lin_he, 
+MCMCtrace(jags.burn_lin_err, 
           params=c("S", "betas[1]", "betas[2]", "betas[3]", "betas[4]"),
           ISB=FALSE,
           exact=TRUE)  ## outputs a PDF file in working directory
@@ -232,31 +233,177 @@ pdf_convert("MCMCtrace.pdf", format="png")  ## convert to png file
 knitr::include_graphics("/home/lucia/bu/year4/semester2/EE509/project/ee509-project/code/modeling/MCMCtrace_1.png")
 knitr::include_graphics("/home/lucia/bu/year4/semester2/EE509/project/ee509-project/code/modeling/MCMCtrace_2.png")
 
-#effectiveSize(jags.burn_lin_he)  ## >10,000 for S, betas
+#effectiveSize(jags.burn_lin_err)  ## >10,000 for S, betas
 ```
 
 ## Model Fit
 ```{r}
 # DIC
-dic.lin_he <- dic.samples(j.lin_he, 1000, "pD")
-dic.lin_he <- sum(dic.lin_he$deviance) + sum(dic.lin_he$penalty)
+dic.lin_err <- dic.samples(j.lin_err, 1000, "pD")
+dic.lin_err <- sum(dic.lin_err$deviance) + sum(dic.lin_err$penalty)
 
 # WAIC
-lin_he_split <- codaSplit(jags.lin_he, "like")
-waic.lin_he <- WAIC(as.matrix(lin_he_split[[1]]))
+lin_err_split <- codaSplit(jags.lin_err, "like")
+waic.lin_err  <- WAIC(as.matrix(lin_err_split[[1]]))
 
-print(paste("DIC: ", round(dic.lin_he, digits=3), " WAIC: ", round(waic.lin_he$WAIC, digits=3)))
+print(paste("DIC: ", round(dic.lin_err, digits=3), " WAIC: ", round(waic.lin_err$WAIC, digits=3)))
 ```
 
 ## Parameter Confidence Intervals
 ```{r}
-out_burn_he <- as.matrix(jags.burn_lin_he)
+out_burn_err <- as.matrix(jags.burn_lin_err)
 
-cS.lin_he <- quantile(out_burn_he[,"S"], c(0.025, 0.975))         ## S
-c1.lin_he <- quantile(out_burn_he[,"betas[1]"], c(0.025, 0.975))  ## beta[1] (intercept)
-c2.lin_he <- quantile(out_burn_he[,"betas[2]"], c(0.025, 0.975))  ## beta[2] (slope on x1, avgEd)
-c3.lin_he <- quantile(out_burn_he[,"betas[3]"], c(0.025, 0.975))  ## beta[3] (slope on x2, avgInc)
-c4.lin_he <- quantile(out_burn_he[,"betas[4]"], c(0.025, 0.975))  ## beta[4] (slope on x3, %Biden)
+cS.lin_err <- quantile(out_burn_err[,"S"], c(0.025, 0.975))         ## S
+c1.lin_err <- quantile(out_burn_err[,"betas[1]"], c(0.025, 0.975))  ## beta[1] (intercept)
+c2.lin_err <- quantile(out_burn_err[,"betas[2]"], c(0.025, 0.975))  ## beta[2] (slope on x1, avgEd)
+c3.lin_err <- quantile(out_burn_err[,"betas[3]"], c(0.025, 0.975))  ## beta[3] (slope on x2, avgInc)
+c4.lin_err <- quantile(out_burn_err[,"betas[4]"], c(0.025, 0.975))  ## beta[4] (slope on x3, %Biden)
 ```
 
+# Model Sc: exponential time-series analysis
+
+```{r}
+inst <- read.csv("/home/lucia/bu/year4/semester2/EE509/project/ee509-project/data/ready/timeseries/timeseries.csv")
+
+yr <- inst$year
+y  <- inst$inst
+
+yr <- append(yr, 2002, after=2)
+y  <- append(y, "NA", after=2)
+y  <- as.numeric(y)
+```
+
+## Specify model
+```{r}
+exp_model <- "
+model {
+  
+  r ~ dnorm(r0, Vr)     ## prior on intrinsic growth rate
+  tau ~ dgamma(t1, t2)  ## prior on process variance
+  S ~ dgamma(s1, s2)    ## prior on observation error
+  x[1] ~ dnorm(x0, Vx)  ## prior on initial x 
+  
+  for(t in 1:n) {
+    y[t] ~ dnorm(x[t], tau)
+  }
+  
+  for(t in 2:n) {
+    mu[t] <- x[t-1] + r
+    x[t] ~ dnorm(mu[t], S)
+  }
+}"
+```
+
+## MCMC Setup
+```{r}
+datat <- list(y=y, n=length(y))
+
+# Specify priors
+datat$r0 <- 0
+datat$Vr <- 0.001
+datat$x0 <- 1
+datat$Vx <- 0.001
+datat$t1 <- 0.001
+datat$t2 <- 0.001
+datat$s1 <- 0.001
+datat$s2 <- 0.001
+
+# Initial values for all state variables and latent X's
+inits = list(x=y, r=0.8, tau=100, S=1)
+
+# Run JAGS
+j.exp <- jags.model(file=textConnection(exp_model),
+                          data=datat,
+                          inits=inits,
+                          n.chains=3)
+```
+
+```{r}
+jags.exp <- coda.samples(model=j.exp,
+                         variable.names=c("x", "S", "r", "tau", "y[3]"),
+                         n.iter=200000)
+
+plot(jags.exp)
+```
+
+## Diagnostics
+```{r}
+jags.burn_exp <- window(jags.exp, start=10000)
+GBR <- gelman.plot(jags.burn_exp)
+
+effectiveSize(jags.burn_exp) 
+```
+
+Looks like tau needs more samples in order to converge, but just 200,000 is a big ask for my laptop.
+
+## Parameter Confidence Intervals
+```{r}
+out_exp <- as.matrix(jags.burn_exp)
+
+cS.exp <- quantile(out_exp[,"S"], c(0.025, 0.975))    ## S 
+cr.exp <- quantile(out_exp[,"r"], c(0.025, 0.975))    ## r
+ct.exp <- quantile(out_exp[,"tau"], c(0.025, 0.975))  ## tau
+cy.exp <- quantile(out_exp[,"y[3]"], c(0.025, 0.975)) ## missing y
+```
+
+## Credible Interval Plots
+```{r}
+# Pulling out the x's
+sel.x <- grep("x", colnames(out_exp))
+x.e <- out_exp[, sel.x]
+
+niter <- 10000
+xpred <- seq(2000:2021)
+npred <- length(xpred)
+
+ycred <- matrix(NA, nrow=niter, ncol=npred)
+
+for(i in 1:niter) {
+  ycred[i,] <- x.e[i,] + out_exp[i, "r"]
+}
+
+ci.e <- apply(ycred, 2, quantile, c(0.025, 0.975))
+
+plot(xpred, datat$y, main="Figure 3: CIs for time-series model")
+lines(xpred, ci.e[1,], col=3, lty=2)
+lines(xpred, ci.e[2,], col=3, lty=2)
+```
+
+## Missing Data
+```{r}
+plot(density(out_exp[,"y[3]"]), xlim=c(-100, 1000), main="Figure 4: Posterior for missing observation (2003)")
+abline(v=mean(out_exp[,"y[3]"]), col=2, lty=2)
+print(mean(out_exp[,"y[3]"]))
+
+plot(density(out_exp[,"r"]), main="Figure 5: Posterior for growth rate")
+abline(v=mean(out_exp[,"r"]), col=2, lty=2)
+print(mean(out_exp[,"r"]))
+```
+
+## Model Fit
+```{r}
+# DIC
+dic.exp <- dic.samples(j.exp, 1000, "pD")
+dic.exp <- sum(dic.exp$deviance) + sum(dic.exp$penalty)
+
+# WAIC
+# TODO: add likelihood to model
+
+print(paste("DIC: ", round(dic.exp, digits=3))) ##, " WAIC: "
+```
+
+
+# Results
+
+Comparing the outputs of model 1 (simple Bayesian linear regression on 3 covariates), model 2 (Bayesian linear regression on 3 covariates with errors in income data), and model 3 (Bayesian linear regression on 1 covariate).
+
+Just from WAIC and DIC scores, model 2 appears to perform better as a descriptor of rooftop PV adoption. It has a much lower DIC than both model 1 and model 3, but the WAIC scores were the same. However, since both models 1 and 2 arrived at very similar estimates for the parameter values and their 95% CIs, I question how much the covariates actually contribute to the observed values of rooftop PV adoption. This is curious, especially considering that in theory, model 2 should be able to model latent, "true" incomes as opposed to the highly error-prone reported income values, and one would expect higher incomes to be correlated with greater adoption because of the upfront and maintenance costs of rooftop PV systems. 
+
+With the exception of x3, or %Biden, the covariates seem to have mild or very little effect on y (their means are at or around 0, with narrow CIs). betas[4], or the slope parameter on x3, suggests that a greater fraction of votes for Biden correlate with an increase in rooftop PV adoption. Perhaps x3 is thus the only significant covariate. 
+
+Testing this assumption with model 3, which uses just voting data to predict adoption, is inconclusive. Model 3 arrived at the same parameter estimates as both models 1 and 2 for S, the intercept term, and the slope on voting, but performed worse according to DIC, despite having fewer parameters. The WAIC score was again the same as that for the other two models. 
+
+Finally, model 4 (exponential time-series) is a departure from the previous regression models. Rather than exploring factors affecting residential rooftop solar adoption, the time-series models the change in the number of installations over time. Thus, there are no covariates. The results of this model (eg. DIC, parameter values) can't be compared to those of models 1-3.
+
+Model 4 produced quite wide confidence intervals for almost all of its parameters, including negative values for the estimate of the missing observation in 2003. This may be partially because there is a steep drop in the number of installed PV systems starting in 2016, whereas previously the trend had been monotonically increasing. 
 
