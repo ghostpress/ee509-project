@@ -4,7 +4,9 @@ author: "Lucia Vilallonga"
 output: html_document
 ---
 
-Supplementary models: Bayesian multivariate linear regression shows that none of the covariates except x3 have an effect on Y, which is expected given the pairs plot.
+Supplementary models: (Sa) Bayesian multiple linear regression; (Sb) 
+
+Bayesian multivariate linear regression shows that none of the covariates except x3 have an effect on Y, which is expected given the pairs plot.
 
 # Setup
 ## Libraries
@@ -80,6 +82,30 @@ jags.lin_mv <- coda.samples(model=j.lin_mv,
                           n.iter=10000)
 
 #out_lin_mv <- as.matrix(jags.lin_mv)
+```
+
+## Splitting JAGS output
+Code source: Michael Dietze
+```{r}
+# Function to split JAGS output
+codaSplit <- function(jags.out,pattern){
+  out = list()
+  mfit = as.matrix(jags.out,chains=TRUE)
+  pat.cols = grep(pattern,colnames(mfit),fixed=TRUE)
+  chain.col = which(colnames(mfit)=="CHAIN")
+  out[[1]] = mat2mcmc.list(mfit[,c(chain.col,pat.cols)])
+  out[[2]]   = mat2mcmc.list(mfit[,-pat.cols])
+  return(out)
+}
+
+mat2mcmc.list <- function(w) {
+  temp <- list()
+  chain.col <- which(colnames(w) == "CHAIN")
+  for (i in unique(w[, "CHAIN"])) {
+    temp[[i]] <- coda:::as.mcmc(w[w[, "CHAIN"] == i, -chain.col])
+  }
+  return(as.mcmc.list(temp))
+}
 ```
 
 ## Diagnostics
@@ -334,8 +360,6 @@ GBR <- gelman.plot(jags.burn_exp)
 effectiveSize(jags.burn_exp) 
 ```
 
-Looks like tau needs more samples in order to converge, but just 200,000 is a big ask for my laptop.
-
 ## Parameter Confidence Intervals
 ```{r}
 out_exp <- as.matrix(jags.burn_exp)
@@ -346,7 +370,7 @@ ct.exp <- quantile(out_exp[,"tau"], c(0.025, 0.975))  ## tau
 cy.exp <- quantile(out_exp[,"y[3]"], c(0.025, 0.975)) ## missing y
 ```
 
-## Credible Interval Plots
+## Credible Interval Plot
 ```{r}
 # Pulling out the x's
 sel.x <- grep("x", colnames(out_exp))
@@ -364,18 +388,19 @@ for(i in 1:niter) {
 
 ci.e <- apply(ycred, 2, quantile, c(0.025, 0.975))
 
-plot(xpred, datat$y, main="Figure 3: CIs for time-series model")
+plot(xpred, datat$y, 
+     main="CI plot for time-series model", xlab="Year", ylab="N, adoptions")
 lines(xpred, ci.e[1,], col=3, lty=2)
 lines(xpred, ci.e[2,], col=3, lty=2)
 ```
 
 ## Missing Data
 ```{r}
-plot(density(out_exp[,"y[3]"]), xlim=c(-100, 1000), main="Figure 4: Posterior for missing observation (2003)")
+plot(density(out_exp[,"y[3]"]), xlim=c(-100, 1000), main="Posterior for missing observation (2003)")
 abline(v=mean(out_exp[,"y[3]"]), col=2, lty=2)
 print(mean(out_exp[,"y[3]"]))
 
-plot(density(out_exp[,"r"]), main="Figure 5: Posterior for growth rate")
+plot(density(out_exp[,"r"]), main="Posterior for growth rate")
 abline(v=mean(out_exp[,"r"]), col=2, lty=2)
 print(mean(out_exp[,"r"]))
 ```
@@ -394,6 +419,60 @@ print(paste("DIC: ", round(dic.exp, digits=3))) ##, " WAIC: "
 
 
 # Results
+
+## Summary tables: models a,b
+```{r}
+params <- c("S", "betas[1]", "betas[2]", "betas[3]", "betas[4")
+
+modela_vals <- c(mean(out_burn_lin_mv[,"S"]), 
+                 mean(out_burn_lin_mv[,"betas[1]"]),
+                 mean(out_burn_lin_mv[,"betas[2]"]),
+                 mean(out_burn_lin_mv[,"betas[3]"]),
+                 mean(out_burn_lin_mv[,"betas[4]"]))
+modelb_vals <- c(mean(out_burn_err[,"S"]), 
+                 mean(out_burn_err[,"betas[1]"]),
+                 mean(out_burn_err[,"betas[2]"]),
+                 mean(out_burn_err[,"betas[3]"]),
+                 mean(out_burn_err[,"betas[4]"]))
+
+modela_ci_l <- c(cS.lin_mv[1], 
+                 c1.lin_mv[1], c2.lin_mv[1], c3.lin_mv[1], c4.lin_mv[1])
+modela_ci_u <- c(cS.lin_mv[2], 
+                 c1.lin_mv[2], c2.lin_mv[2], c3.lin_mv[2], c4.lin_mv[2])
+modelb_ci_l <- c(cS.lin_err[1], 
+                 c1.lin_err[1], c2.lin_err[1], c3.lin_err[1], c4.lin_err[1])
+modelb_ci_u <- c(cS.lin_err[2], 
+                 c1.lin_err[2], c2.lin_err[2], c3.lin_err[2], c4.lin_err[2])
+
+res_df <- data.frame(params, modela_vals, modelb_vals,
+                     modela_ci_l, modela_ci_u, 
+                     modelb_ci_l, modelb_ci_u)
+
+crit    <- c("DIC", "WAIC")
+fit_modela <- c(dic.lin_err, waic.lin_err$WAIC)
+fit_modelb <- c(dic.lin_mv, waic.lin_mv$WAIC)
+
+fit_df <- data.frame(crit, fit_modela, fit_modelb)
+
+knitr::kable(res_df, caption="Parameter values for models 1 and 2")
+
+knitr::kable(fit_df, caption="DIC and WAIC values for models 1 and 2")
+```
+
+## Summary tables: model Sc
+```{r}
+params_t <- c("r", "S", "tau", "y[3]")
+
+modelc_vals <- c(mean(out_exp[,"r"]), mean(out_exp[,"S"]),
+                 mean(out_exp[,"tau"]), mean(out_exp[,"y[3]"]))
+
+modelc_ci_l <- c(cS.exp[1], cr.exp[1], ct.exp[1], cy.exp[1])
+modelc_ci_u <- c(cS.exp[2], cr.exp[2], ct.exp[2], cy.exp[2])
+
+res_t_df <- data.frame(params_t, modelc_vals, modelc_ci_l, modelc_ci_u)
+
+knitr::kable(res_t_df, caption="Parameter values for time-series model")
+```
 
 Comparing the outputs of model 1 (simple Bayesian linear regression on 3 covariates), model 2 (Bayesian linear regression on 3 covariates with errors in income data), and model 3 (Bayesian linear regression on 1 covariate).
 
